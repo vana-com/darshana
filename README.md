@@ -27,6 +27,11 @@ npm install -g @opendatalabs/darshana
 
 Chromium is installed automatically. Or skip the install entirely and use `npx @opendatalabs/darshana`.
 
+**Linux only:** if Chromium fails to launch, you may be missing system libraries. Fix with:
+```bash
+sudo npx playwright install chromium --with-deps
+```
+
 ## CLI reference
 
 ```
