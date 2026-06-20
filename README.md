@@ -7,7 +7,7 @@ Crawl any web app and generate a labeled PDF, HTML viewer, or image set for desi
 ## Try it now
 
 ```bash
-npx @opendatalabs/darshana --url https://vana.org --public
+npx @opendatalabs/darshana --url https://vana.org --public --max-pages 10
 ```
 
 Output lands in `./darshana-output/` — a PDF and a self-contained HTML viewer with sidebar nav, filters, and keyboard navigation.
