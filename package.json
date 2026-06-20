@@ -1,0 +1,34 @@
+{
+  "name": "@opendatalabs/darshana",
+  "version": "0.0.0",
+  "description": "Crawl any web app and generate a labeled PDF, HTML viewer, or image set for design review.",
+  "type": "module",
+  "bin": {
+    "darshana": "./src/index.mjs"
+  },
+  "files": [
+    "src/",
+    "examples/",
+    "README.md"
+  ],
+  "dependencies": {
+    "playwright": "^1.60.0",
+    "pdf-lib": "^1.17.1",
+    "path-to-regexp": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": false,
+    "registry": "https://registry.npmjs.org/",
+    "tag": "latest"
+  },
+  "keywords": ["playwright", "screenshot", "pdf", "html", "design-review", "crawler", "darshana"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vana-com/darshana.git"
+  }
+}

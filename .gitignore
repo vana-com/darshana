@@ -1,0 +1,7 @@
+node_modules/
+auth.json
+output/
+*.pdf
+*.html
+images/
+.DS_Store

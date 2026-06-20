@@ -1,0 +1,46 @@
+{
+  "title": "PDPP Console",
+  "url": "https://pdpp.vivid.fish",
+  "start": "/dashboard",
+  "public": false,
+  "authScript": "./auth.mjs",
+  "crawl": {
+    "include": ["^/dashboard"],
+    "exclude": ["delete", "revoke", "logout", "disconnect"],
+    "maxDepth": 4,
+    "maxPages": 80,
+    "extraRoutes": ["/design-system"],
+    "routes": [
+      { "pattern": "/dashboard/records/add/static-secret/:connector", "sample": 1, "follow": false },
+      { "pattern": "/dashboard/records/add/browser-session/:connector", "sample": 1, "follow": false },
+      { "pattern": "/dashboard/connect/manual-upload/:connector", "sample": 1, "follow": false },
+      { "pattern": "/dashboard/records/:connector/:recordId", "sample": 1, "follow": false },
+      { "pattern": "/dashboard/records/:connector", "sample": 3, "follow": true },
+      { "pattern": "/dashboard/runs/:runId", "sample": 2, "follow": false },
+      { "pattern": "/dashboard/traces/:traceId", "sample": 2, "follow": false },
+      { "pattern": "/dashboard/grants/request", "follow": false },
+      { "pattern": "/dashboard/grants/packages/:packageId", "sample": 1, "follow": false },
+      { "pattern": "/dashboard/grants/:grantId", "sample": 2, "follow": false },
+      { "pattern": "/dashboard/**", "follow": true }
+    ]
+  },
+  "capture": {
+    "themes": ["dark", "light"],
+    "viewports": ["desktop", "mobile"],
+    "fullPage": true,
+    "delay": 400,
+    "routeOptions": {
+      "blockPatterns": ["analytics", "tracking", "hotjar", "intercom", "segment"]
+    },
+    "overrides": [
+      { "route": "^/design-system$", "themes": ["dark"], "viewports": ["desktop"] },
+      { "route": "/dashboard/records/", "delay": 1000 }
+    ]
+  },
+  "outputs": ["pdf", "html"],
+  "outputDir": "./output",
+  "pdf": {
+    "output": "./console-review.pdf",
+    "pageSize": "A4"
+  }
+}
