@@ -13,26 +13,78 @@ export async function assembleHtml(pages, config, outputDir) {
     return `img[data-viewport="${vp}"] { width: ${cssWidth}; max-width: ${preset.width}px; }`;
   }).join('\n    ');
 
-  const navItems = [];
+  const authPages = pages.filter(p => p.section === 'auth');
+  const appPages = pages.filter(p => p.section !== 'auth');
+  const hasAuthCaptures = authPages.length > 0;
+
   const pageSections = [];
 
   pages.forEach((capture, i) => {
     const idx = i + 1;
     const pageId = `page-${idx}`;
     const base64 = capture.imageBuffer.toString('base64');
+    const sectionAttr = capture.section === 'auth' ? ' data-section="auth"' : '';
 
-    navItems.push(
-      `<li data-theme="${escHtml(capture.theme)}" data-viewport="${escHtml(capture.viewport)}"><a href="#${pageId}" data-theme="${escHtml(capture.theme)}" data-viewport="${escHtml(capture.viewport)}">${escHtml(capture.label)}</a></li>`
-    );
-
-    pageSections.push(`<div class="page" id="${pageId}" data-theme="${escHtml(capture.theme)}" data-viewport="${escHtml(capture.viewport)}">
+    pageSections.push(`<div class="page" id="${pageId}" data-theme="${escHtml(capture.theme)}" data-viewport="${escHtml(capture.viewport)}"${sectionAttr}>
       <div class="label"><span class="idx">${idx}</span>${escHtml(capture.label)}</div>
-      <img src="data:image/png;base64,${base64}" alt="${escHtml(capture.label)}" data-viewport="${escHtml(capture.viewport)}" loading="lazy">
+      <img src="data:image/png;base64,${base64}" alt="${escHtml(capture.label)}" data-viewport="${escHtml(capture.viewport)}"${sectionAttr} loading="lazy">
     </div>`);
   });
 
-  const themes = [...new Set(pages.map(p => p.theme))];
-  const viewports = [...new Set(pages.map(p => p.viewport))];
+  // Build sidebar nav items
+  let navHtml;
+  if (hasAuthCaptures) {
+    // Auth group
+    const authItems = [];
+    pages.forEach((capture, i) => {
+      if (capture.section !== 'auth') return;
+      const idx = i + 1;
+      const pageId = `page-${idx}`;
+      authItems.push(
+        `<li data-section="auth"><a href="#${pageId}">${escHtml(capture.label)}</a></li>`
+      );
+    });
+
+    // Pages group
+    const pageItems = [];
+    pages.forEach((capture, i) => {
+      if (capture.section === 'auth') return;
+      const idx = i + 1;
+      const pageId = `page-${idx}`;
+      pageItems.push(
+        `<li data-theme="${escHtml(capture.theme)}" data-viewport="${escHtml(capture.viewport)}"><a href="#${pageId}" data-theme="${escHtml(capture.theme)}" data-viewport="${escHtml(capture.viewport)}">${escHtml(capture.label)}</a></li>`
+      );
+    });
+
+    navHtml = `
+      <div class="section-group">
+        <div class="section-header" onclick="toggleSection(this)">
+          <span class="chevron">&#9660;</span> Auth
+        </div>
+        <ul class="section-list">
+          ${authItems.join('\n          ')}
+        </ul>
+      </div>
+      <div class="section-group">
+        <div class="section-header" onclick="toggleSection(this)">
+          <span class="chevron">&#9660;</span> Pages
+        </div>
+        <ul class="section-list" id="pages-section-list">
+          ${pageItems.join('\n          ')}
+        </ul>
+      </div>`;
+  } else {
+    // Flat nav — same as original behavior
+    const flatItems = pages.map((capture, i) => {
+      const idx = i + 1;
+      const pageId = `page-${idx}`;
+      return `<li data-theme="${escHtml(capture.theme)}" data-viewport="${escHtml(capture.viewport)}"><a href="#${pageId}" data-theme="${escHtml(capture.theme)}" data-viewport="${escHtml(capture.viewport)}">${escHtml(capture.label)}</a></li>`;
+    });
+    navHtml = `<ul id="nav-list">\n      ${flatItems.join('\n      ')}\n    </ul>`;
+  }
+
+  const themes = [...new Set(appPages.map(p => p.theme))];
+  const viewports = [...new Set(appPages.map(p => p.viewport))];
 
   const themeCheckboxes = themes.map(t =>
     `<label><input type="checkbox" data-filter="theme" value="${escHtml(t)}" checked> ${escHtml(t)}</label>`
@@ -64,6 +116,19 @@ export async function assembleHtml(pages, config, outputDir) {
     #nav-list li a:hover, #nav-list li a.active { background: #1e1e1e; color: #fff; }
     #nav-list li[data-hidden] { display: none; }
 
+    .section-group { flex-shrink: 0; }
+    .section-header { position: sticky; top: 0; background: #111; z-index: 1; padding: 8px 16px; font-size: 10px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid #2a2a2a; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+    .section-header:hover { color: #bbb; }
+    .section-header .chevron { font-size: 8px; transition: transform 0.15s; display: inline-block; }
+    .section-header.collapsed .chevron { transform: rotate(-90deg); }
+    .section-list { list-style: none; margin: 0; padding: 4px 0; }
+    .section-list.collapsed { display: none; }
+    .section-list li a { display: block; padding: 5px 16px; font-size: 11px; color: #666; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .section-list li a:hover, .section-list li a.active { background: #1e1e1e; color: #fff; }
+    .section-list li[data-hidden] { display: none; }
+    .section-list li[data-section="auth"] a { color: #7a8aaa; }
+    .section-list li[data-section="auth"] a:hover { color: #aab8d4; background: #1e1e1e; }
+
     #content { margin-left: 240px; flex: 1; padding: 32px; min-width: 0; }
     .cover { padding: 48px 0 40px; border-bottom: 1px solid #2a2a2a; margin-bottom: 48px; }
     .cover h1 { font-size: 1.75rem; margin: 0 0 8px; font-weight: 600; }
@@ -73,6 +138,7 @@ export async function assembleHtml(pages, config, outputDir) {
     .page[data-hidden] { display: none; }
     .label { background: #0d0d0d; border: 1px solid #2a2a2a; border-bottom: none; padding: 8px 14px; font-size: 12px; color: #ccc; font-family: 'SF Mono', 'Fira Code', monospace; display: flex; align-items: center; gap: 10px; border-radius: 6px 6px 0 0; }
     .label .idx { background: #2a2a2a; color: #888; padding: 1px 6px; border-radius: 3px; font-size: 10px; min-width: 24px; text-align: center; }
+    .page[data-section="auth"] .label { background: #0d0f1a; border-color: #2a2e42; color: #9aadcc; }
     .page img { display: block; border: 1px solid #2a2a2a; border-radius: 0 0 6px 6px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
     img[data-viewport="mobile"] { border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
 
@@ -94,9 +160,7 @@ export async function assembleHtml(pages, config, outputDir) {
       <div class="filter-group-label" style="margin-top:10px">Viewport</div>
       ${viewportCheckboxes}
     </div>
-    <ul id="nav-list">
-      ${navItems.join('\n      ')}
-    </ul>
+    ${navHtml}
   </nav>
   <main id="content">
     <div class="cover">
@@ -107,15 +171,30 @@ export async function assembleHtml(pages, config, outputDir) {
     ${pageSections.join('\n    ')}
   </main>
   <script>
+    function toggleSection(header) {
+      header.classList.toggle('collapsed');
+      const list = header.nextElementSibling;
+      if (list && list.classList.contains('section-list')) {
+        list.classList.toggle('collapsed');
+      }
+    }
+
     function applyFilters() {
       const checked = { theme: new Set(), viewport: new Set() };
       document.querySelectorAll('input[data-filter]').forEach(cb => {
         if (cb.checked) checked[cb.dataset.filter].add(cb.value);
       });
-      document.querySelectorAll('.page').forEach((page, i) => {
+      document.querySelectorAll('.page').forEach(page => {
+        // Auth captures are always visible — not part of the theme/viewport matrix
+        if (page.dataset.section === 'auth') return;
         const visible = checked.theme.has(page.dataset.theme) && checked.viewport.has(page.dataset.viewport);
         page.toggleAttribute('data-hidden', !visible);
-        document.querySelectorAll('#nav-list li')[i]?.toggleAttribute('data-hidden', !visible);
+        // Also hide/show the corresponding nav item in the Pages section list
+        const link = document.querySelector('.section-list a[href="#' + page.id + '"]');
+        if (link) link.closest('li')?.toggleAttribute('data-hidden', !visible);
+        // Flat nav fallback
+        const flatLink = document.querySelector('#nav-list a[href="#' + page.id + '"]');
+        if (flatLink) flatLink.closest('li')?.toggleAttribute('data-hidden', !visible);
       });
     }
     document.querySelectorAll('input[data-filter]').forEach(cb => cb.addEventListener('change', applyFilters));
@@ -129,8 +208,8 @@ export async function assembleHtml(pages, config, outputDir) {
       else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') currentIdx = Math.max(currentIdx - 1, 0);
       else return;
       ps[currentIdx].scrollIntoView({ behavior: 'smooth', block: 'start' });
-      document.querySelectorAll('#nav-list li a').forEach(a => a.classList.remove('active'));
-      const link = document.querySelector('#nav-list li a[href="#' + ps[currentIdx].id + '"]');
+      document.querySelectorAll('.section-list li a, #nav-list li a').forEach(a => a.classList.remove('active'));
+      const link = document.querySelector('a[href="#' + ps[currentIdx].id + '"]');
       if (link) { link.classList.add('active'); link.scrollIntoView({ block: 'nearest' }); }
     });
 
@@ -138,7 +217,7 @@ export async function assembleHtml(pages, config, outputDir) {
       entries.forEach(entry => {
         if (entry.isIntersecting && !entry.target.hasAttribute('data-hidden')) {
           const id = entry.target.id;
-          document.querySelectorAll('#nav-list li a').forEach(a => {
+          document.querySelectorAll('.section-list li a, #nav-list li a').forEach(a => {
             a.classList.toggle('active', a.getAttribute('href') === '#' + id);
           });
         }

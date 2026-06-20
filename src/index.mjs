@@ -315,7 +315,7 @@ function runMain() {
       config = configFromArgs(args);
     }
 
-    const storageStatePath = await ensureAuth(config);
+    const { storageStatePath, authCaptures } = await ensureAuth(config);
     config._storageStatePath = storageStatePath;
 
     printConfigSummary(config);
@@ -365,7 +365,9 @@ function runMain() {
 
     console.log(`\n[darshana] Captured ${captures.length} page(s).`);
 
-    if (captures.length === 0) {
+    const allCaptures = [...authCaptures, ...captures];
+
+    if (allCaptures.length === 0) {
       console.error('[darshana] No pages captured. Exiting.');
       process.exit(1);
     }
@@ -376,15 +378,15 @@ function runMain() {
     const outputs = config.outputs ?? ['pdf', 'html'];
 
     if (outputs.includes('pdf')) {
-      await assemblePdf(captures, config, outputDir);
+      await assemblePdf(allCaptures, config, outputDir);
     }
 
     if (outputs.includes('html')) {
-      await assembleHtml(captures, config, outputDir);
+      await assembleHtml(allCaptures, config, outputDir);
     }
 
     if (outputs.includes('images')) {
-      await writeImages(captures, outputDir);
+      await writeImages(allCaptures, outputDir);
     }
 
     console.log('\n[darshana] Done.');

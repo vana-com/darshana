@@ -4,6 +4,7 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 
 const HEADER_HEIGHT = 28;
 const HEADER_BG = rgb(0, 0, 0);
+const HEADER_BG_AUTH = rgb(0.25, 0.25, 0.35);
 const HEADER_FG = rgb(1, 1, 1);
 const FONT_SIZE = 11;
 
@@ -49,8 +50,9 @@ export async function assemblePdf(pages, config, outputDir) {
       page.drawImage(img, { x: 0, y: 0, width: pgWidth, height: imgHeight });
 
       // Header bar at top (y=0 is bottom in pdf-lib, so header sits at y=imgHeight)
+      const headerColor = capture.section === 'auth' ? HEADER_BG_AUTH : HEADER_BG;
       page.drawRectangle({
-        x: 0, y: imgHeight, width: pgWidth, height: HEADER_HEIGHT, color: HEADER_BG,
+        x: 0, y: imgHeight, width: pgWidth, height: HEADER_HEIGHT, color: headerColor,
       });
       page.drawText(capture.label, {
         x: 8, y: imgHeight + 8, font, size: FONT_SIZE, color: HEADER_FG, maxWidth: pgWidth - 16,
