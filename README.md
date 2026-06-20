@@ -1,26 +1,62 @@
 # darshana
 
-Crawl any web app and generate a labeled PDF, HTML viewer, or image set for AI-assisted design review.
+Crawl any web app and generate a labeled PDF, HTML viewer, or image set for design review.
 
 *Darśana* — Sanskrit for "the act of seeing clearly."
+
+## Try it now
+
+```bash
+npx @opendatalabs/darshana --url https://vana.org --public
+```
+
+Output lands in `./darshana-output/` — a PDF and a self-contained HTML viewer with sidebar nav, filters, and keyboard navigation.
+
+For a private app, darshana opens a browser so you can log in, then saves the session:
+
+```bash
+npx @opendatalabs/darshana --url https://app.vana.org
+# A browser opens → log in → press Enter → capture begins
+```
 
 ## Install
 
 ```bash
 npm install -g @opendatalabs/darshana
-# or use directly:
-npx @opendatalabs/darshana --config review.config.json
 ```
 
-After installing, set up Playwright's browser:
+Chromium is installed automatically. Or skip the install entirely and use `npx @opendatalabs/darshana`.
 
-```bash
-npx playwright install chromium
+## CLI reference
+
+```
+darshana --url <url> [options]         # zero-config
+darshana --config <path> [options]     # file-based (CLI args override config)
+
+--url <url>              Base URL to crawl
+--config <path>          Path to a JSON config file
+--title <string>         Review title (default: hostname)
+--start <path>           Starting path (default: /)
+--public                 Skip auth — use for public sites
+--auth-storage <path>    Where to save/load the session (default: ./darshana-output/auth.json)
+--auth-script <path>     Headless login script (see Auth below)
+--themes <list>          Comma-separated: system,dark,light (default: system)
+--viewports <list>       Comma-separated: desktop,mobile (default: desktop)
+--max-depth <n>          BFS depth limit (default: 5)
+--max-pages <n>          Page cap (default: 100)
+--delay <ms>             Wait after page load before capture (default: 400)
+--outputs <list>         Comma-separated: pdf,html,images (default: pdf,html)
+--output-dir <path>      Output directory (default: ./darshana-output)
+--include <regex>        Crawl only paths matching this pattern (repeatable)
+--exclude <regex>        Skip paths matching this pattern (repeatable)
+--dry-run                Discover URLs without capturing
+--route <path>           Capture a single route only
+--auth-only              Save auth session and exit
 ```
 
-## Quick start
+## Config file
 
-**1. Create a config file** (`review.config.json`):
+For complex projects, a JSON config gives you per-route sampling rules and capture overrides. CLI args always override config file values.
 
 ```json
 {
@@ -29,103 +65,92 @@ npx playwright install chromium
   "start": "/dashboard",
   "public": false,
   "authStorage": "./auth.json",
+  "authScript": "./auth.mjs",
   "crawl": {
     "include": ["^/dashboard"],
     "exclude": ["logout", "delete"],
     "maxDepth": 3,
     "maxPages": 50,
-    "extraRoutes": []
+    "routes": [
+      { "pattern": "/dashboard/records/:id", "sample": 1, "follow": false },
+      { "pattern": "/dashboard/runs/:id",    "sample": 2, "follow": false },
+      { "pattern": "/dashboard/**",          "follow": true }
+    ]
   },
   "capture": {
-    "themes": ["dark"],
+    "themes": ["dark", "light"],
     "viewports": ["desktop", "mobile"],
-    "delay": 400
+    "delay": 400,
+    "overrides": [
+      { "route": "/dashboard/records/", "delay": 1000 }
+    ]
   },
   "outputs": ["pdf", "html"],
   "outputDir": "./output"
 }
 ```
 
-**2. Authenticate** (opens a browser — log in, press Enter):
-
-```bash
-npx darshana --config review.config.json --auth-only
-```
-
-Or provide an `authScript` for headless login (see [examples/auth-example.mjs](examples/auth-example.mjs)).
-
-**3. Generate the review**:
-
-```bash
-npx darshana --config review.config.json
-```
-
-## Config reference
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `title` | string | `"Design Review"` | Title shown on cover page and HTML header |
-| `url` | string | required | Base URL of the app |
-| `start` | string | required | Path to start crawling from |
-| `public` | boolean | `false` | Skip auth entirely for public sites |
-| `authStorage` | string | `"./auth.json"` | Path to saved Playwright storageState |
-| `authScript` | string | — | Path to a JS file that handles login programmatically |
-| `outputs` | string[] | `["pdf"]` | Any of `"pdf"`, `"html"`, `"images"` |
-| `outputDir` | string | same dir as config | Directory for generated output files |
-
-### `crawl`
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `include` | string[] | `[]` | Regex patterns — URL pathname must match all |
-| `exclude` | string[] | `[]` | Regex patterns — URL pathname must not match any |
-| `maxDepth` | number | `5` | Max BFS depth from start URL |
-| `maxPages` | number | `100` | Hard cap on total pages crawled |
-| `extraRoutes` | string[] | `[]` | Additional paths to capture (not crawled for links) |
-| `routes` | Route[] | `[]` | Per-pattern sampling rules (see Routes DSL) |
-
-### `capture`
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `themes` | string[] | `["dark"]` | Theme names to capture — injected as `data-theme` + CSS class |
-| `viewports` | string[] | `["desktop"]` | `"desktop"` (1440×900) or `"mobile"` (390×844) |
-| `fullPage` | boolean | `true` | Capture full scrollable page height |
-| `delay` | number | `400` | ms to wait after page load before capture |
-| `waitFor` | string | — | CSS selector (prefix `$`) or JS expression to wait for |
-| `overrides` | Override[] | `[]` | Per-route capture overrides |
-| `contextOptions` | object | `{}` | Passed directly to `browser.newContext()` |
-| `launchOptions` | object | `{}` | Passed directly to `chromium.launch()` |
-| `playwrightOptions` | object | `{}` | Passed directly to `page.screenshot()` |
-| `routeOptions` | object | — | `{ blockPatterns: string[] }` — abort matching network requests |
-
 ### Routes DSL
 
-Limit how many pages of each "shape" are captured. Uses Express-style `:param` notation.
-
-```json
-"routes": [
-  { "pattern": "/dashboard/records/:id", "sample": 1, "follow": false },
-  { "pattern": "/dashboard/runs/:id",    "sample": 2, "follow": false },
-  { "pattern": "/dashboard/**",          "follow": true }
-]
-```
+Without routes, darshana visits every discovered URL. For apps with millions of records or runs, use routes to sample:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `pattern` | string | required | Path pattern using `:param` and `/**` |
-| `sample` | number | unlimited | Max pages to visit matching this pattern |
+| `pattern` | string | required | Express-style path using `:param` and `/**` |
+| `sample` | number | unlimited | Max pages to capture matching this pattern |
 | `follow` | boolean | `true` | Whether to BFS-follow links on matching pages |
 
-Patterns are matched in order — first match wins.
+First match wins.
 
-## Auth options
+### Config reference
 
-**Headed handover** (default when no `authScript`): darshana opens a browser, you log in manually, press Enter — session is saved to `authStorage`. Sessions are reused for 12 hours.
+**Top-level**
 
-**Headless auth script**: Create a JS file that exports a default function:
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `title` | string | hostname | Cover page and HTML header title |
+| `url` | string | required | Base URL |
+| `start` | string | `/` | Path to start crawling from |
+| `public` | boolean | `false` | Skip auth |
+| `authStorage` | string | `./auth.json` | Saved session path |
+| `authScript` | string | — | Headless login script |
+| `outputs` | string[] | `["pdf","html"]` | Any of `"pdf"`, `"html"`, `"images"` |
+| `outputDir` | string | `./darshana-output` | Output directory |
+
+**`crawl`**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `include` | string[] | `[]` | Regex patterns — pathname must match all |
+| `exclude` | string[] | `[]` | Regex patterns — pathname must not match any |
+| `maxDepth` | number | `5` | Max BFS depth |
+| `maxPages` | number | `100` | Hard page cap |
+| `extraRoutes` | string[] | `[]` | Extra paths to capture (not crawled for links) |
+| `routes` | Route[] | `[]` | Per-pattern sampling rules |
+
+**`capture`**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `themes` | string[] | `["system"]` | `"system"` (no injection), `"dark"`, `"light"` |
+| `viewports` | string[] | `["desktop"]` | `"desktop"` (1440×900) or `"mobile"` (390×844) |
+| `fullPage` | boolean | `true` | Capture full scrollable height |
+| `delay` | number | `400` | ms to wait before capture |
+| `waitFor` | string | — | CSS selector (prefix `$`) or JS expression to await |
+| `overrides` | Override[] | `[]` | Per-route overrides for any capture field |
+| `contextOptions` | object | `{}` | Passed to `browser.newContext()` |
+| `launchOptions` | object | `{}` | Passed to `chromium.launch()` |
+| `playwrightOptions` | object | `{}` | Passed to `page.screenshot()` |
+| `routeOptions` | object | — | `{ blockPatterns: string[] }` — abort matching requests |
+
+## Auth
+
+**Headed handover** (default): darshana opens a Chromium window, you log in, press Enter. The session is saved to `authStorage` and reused for 12 hours.
+
+**Headless auth script**: export a default function that receives a `Browser` and returns the path to a saved `storageState`:
 
 ```javascript
+// auth.mjs
 export default async function login(browser) {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -133,29 +158,19 @@ export default async function login(browser) {
   await page.fill('#password', process.env.APP_PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard/);
-  const storagePath = './auth.json';
-  await context.storageState({ path: storagePath });
+  await context.storageState({ path: './auth.json' });
   await context.close();
-  return storagePath;
+  return './auth.json';
 }
 ```
 
-Set `"authScript": "./my-auth.mjs"` in config.
-
-## CLI
-
-```bash
-darshana --config <path>          # run full pipeline
-darshana --config <path> --dry-run   # discover URLs without capturing
-darshana --config <path> --route /dashboard  # capture one route only
-darshana --config <path> --auth-only  # save auth session and exit
-```
+See [examples/auth-example.mjs](examples/auth-example.mjs) for a full example.
 
 ## Outputs
 
-- **`pdf`** — `<outputDir>/console-review.pdf` — labeled pages, cover page, one page per capture
-- **`html`** — `<outputDir>/console-review.html` — self-contained HTML with sidebar nav, filters, keyboard navigation, viewport-correct sizing
-- **`images`** — `<outputDir>/images/<viewport>/NNN-slug-theme.png` — individual screenshots grouped by viewport
+- **`pdf`** — one page per capture, labeled header, cover page
+- **`html`** — self-contained file with sidebar nav, theme/viewport filters, keyboard navigation (↑↓), viewport-correct image sizing
+- **`images`** — `<outputDir>/images/<viewport>/NNN-slug-theme.png`
 
 ## License
 
