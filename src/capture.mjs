@@ -7,6 +7,8 @@ export async function captureAll(browser, config, urls) {
   const results = [];
   const themes = config.capture.themes;
   const viewportNames = config.capture.viewports;
+  const total = urls.length * themes.length * viewportNames.length;
+  const counter = { n: 0 };
 
   for (const viewportName of viewportNames) {
     for (const theme of themes) {
@@ -20,7 +22,7 @@ export async function captureAll(browser, config, urls) {
         ...(storageStatePath ? { storageState: storageStatePath } : {}),
       };
 
-      console.log(`\n[capture] Segment: ${viewportName} / ${theme} (${urls.length} URLs)`);
+      console.log(`\n[capture] Starting segment ${viewportName}/${theme} (${urls.length} URLs)`);
       const context = await browser.newContext(contextOpts);
 
       for (const url of urls) {
@@ -31,20 +33,23 @@ export async function captureAll(browser, config, urls) {
 
         const effectiveThemes = override?.themes;
         if (effectiveThemes && !effectiveThemes.includes(theme)) {
-          console.log(`  [capture] skip ${pathname} [${theme}] (override)`);
+          counter.n++;
+          console.log(`  [capture] ${counter.n}/${total} skip ${pathname} [${theme}] (override)`);
           continue;
         }
         const effectiveViewports = override?.viewports;
         if (effectiveViewports && !effectiveViewports.includes(viewportName)) {
-          console.log(`  [capture] skip ${pathname} [${viewportName}] (override)`);
+          counter.n++;
+          console.log(`  [capture] ${counter.n}/${total} skip ${pathname} [${viewportName}] (override)`);
           continue;
         }
 
         const delay = override?.delay ?? config.capture.delay ?? 400;
         const waitFor = override?.waitFor ?? config.capture.waitFor ?? null;
         const label = makeLabel(pathname, viewportName, theme);
+        counter.n++;
 
-        console.log(`  [capture] ${label}`);
+        console.log(`  [capture] ${counter.n}/${total}  ${label}`);
         const page = await context.newPage();
 
         try {
@@ -96,14 +101,14 @@ export async function captureAll(browser, config, urls) {
 
           results.push({ url, pathname, theme, viewport: viewportName, imageBuffer, label });
         } catch (err) {
-          console.error(`  [capture] FAILED ${pathname}: ${err.message}`);
+          console.error(`  [capture] ${counter.n}/${total}  FAILED ${pathname}: ${err.message}`);
         } finally {
           await page.close();
         }
       }
 
       await context.close();
-      console.log(`[capture] Segment done: ${viewportName} / ${theme}`);
+      console.log(`[capture] Segment done: ${viewportName}/${theme}`);
     }
   }
 

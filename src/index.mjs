@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline';
+import { createRequire } from 'node:module';
 import { chromium } from 'playwright';
 import { loadConfig, buildConfig } from './config.mjs';
 import { ensureAuth } from './auth.mjs';
@@ -8,6 +10,9 @@ import { crawl } from './crawl.mjs';
 import { captureAll } from './capture.mjs';
 import { assemblePdf } from './pdf.mjs';
 import { assembleHtml } from './html.mjs';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
 
 const USAGE = `
 Usage:
@@ -35,6 +40,155 @@ Options:
   --route <path>           Capture a single route only
   --auth-only              Save auth session and exit
 `.trim();
+
+// ── Config summary box ────────────────────────────────────────────────────────
+
+function printConfigSummary(config) {
+  const INNER = 48;
+  const authLabel = config.public
+    ? 'public'
+    : config.authScript
+      ? `script: ${path.basename(config.authScript)}`
+      : 'session file';
+
+  const rows = [
+    ['url',       config.url],
+    ['start',     config.start],
+    ['auth',      authLabel],
+    ['themes',    (config.capture.themes ?? ['system']).join(', ')],
+    ['viewports', (config.capture.viewports ?? ['desktop']).join(', ')],
+    ['maxPages',  `${config.crawl.maxPages}  maxDepth  ${config.crawl.maxDepth}`],
+    ['outputs',   (config.outputs ?? ['pdf', 'html']).join(', ')],
+    ['outputDir', config.outputDir ?? './darshana-output'],
+  ];
+
+  // Compute column widths
+  const keyWidth = Math.max(...rows.map(([k]) => k.length));
+  const valWidth = INNER - keyWidth - 2; // 2 = space + space
+
+  function trunc(s, max) {
+    const str = String(s);
+    return str.length > max ? str.slice(0, max - 1) + '…' : str;
+  }
+
+  function pad(s, len) { return s + ' '.repeat(Math.max(0, len - s.length)); }
+
+  const topLabel = ' darshana ';
+  const topLineLen = INNER + 2; // borders
+  const dashLen = topLineLen - topLabel.length - 2; // -2 for corner chars
+  const dashLeft = Math.floor(dashLen / 2);
+  const dashRight = dashLen - dashLeft;
+
+  console.log(`┌${'─'.repeat(dashLeft)}${topLabel}${'─'.repeat(dashRight)}┐`);
+  for (const [k, v] of rows) {
+    const paddedKey = pad(k, keyWidth);
+    const truncVal = trunc(v, valWidth);
+    const paddedVal = pad(truncVal, valWidth);
+    console.log(`│ ${paddedKey} ${paddedVal} │`);
+  }
+  console.log(`└${'─'.repeat(INNER)}┘`);
+}
+
+// ── init subcommand ───────────────────────────────────────────────────────────
+
+async function runInit() {
+  const configPath = path.join(process.cwd(), 'review.config.json');
+
+  // Build an `ask` function that works for both TTY and piped stdin.
+  // For piped input: readline fires 'close' as soon as the pipe ends, breaking
+  // sequential question() calls. We buffer all lines upfront and serve them.
+  // For interactive TTY: use readline.question() normally.
+  const ask = await makeAsker();
+
+  if (fs.existsSync(configPath)) {
+    const overwrite = await ask('review.config.json already exists. Overwrite? (y/N): ');
+    if (overwrite.trim().toLowerCase() !== 'y') {
+      console.log('Aborted.');
+      process.exit(0);
+    }
+  }
+
+  // 1. URL
+  let url;
+  while (true) {
+    const raw = await ask('App URL (e.g. https://myapp.example.com): ');
+    try { url = new URL(raw.trim()).href.replace(/\/$/, ''); break; }
+    catch { console.log('  Invalid URL. Please include the scheme (https://).'); }
+  }
+  const hostname = new URL(url).hostname;
+
+  // 2. Title
+  const titleRaw = await ask(`Title (default: ${hostname}): `);
+  const title = titleRaw.trim() || hostname;
+
+  // 3. Auth
+  const authRaw = await ask('Is the app public? (y/N): ');
+  const isPublic = authRaw.trim().toLowerCase() === 'y';
+
+  // 4. Start path
+  const startRaw = await ask('Start path (default: /): ');
+  const start = startRaw.trim() || '/';
+
+  // 5. Viewports
+  const vpRaw = await ask('Viewports — desktop, mobile, or both? (default: desktop): ');
+  const vpInput = vpRaw.trim().toLowerCase() || 'desktop';
+  let viewports;
+  if (vpInput === 'both') viewports = ['desktop', 'mobile'];
+  else if (vpInput === 'mobile') viewports = ['mobile'];
+  else viewports = ['desktop'];
+
+  // 6. Themes
+  const themeRaw = await ask('Themes — system, dark, light, or multiple? (default: system): ');
+  const themeInput = themeRaw.trim() || 'system';
+  let themes;
+  if (themeInput === 'multiple' || themeInput.includes(',')) {
+    themes = themeInput === 'multiple'
+      ? ['dark', 'light']
+      : themeInput.split(',').map(s => s.trim()).filter(Boolean);
+  } else {
+    themes = [themeInput];
+  }
+
+  // 7. Output dir
+  const outRaw = await ask('Output directory (default: ./darshana-output): ');
+  const outputDir = outRaw.trim() || './darshana-output';
+
+  const config = {
+    title,
+    url,
+    start,
+    public: isPublic,
+    capture: { viewports, themes },
+    outputDir,
+  };
+
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  console.log('✓ review.config.json created. Run: darshana --config review.config.json');
+  process.exit(0);
+}
+
+// Returns an `ask(question)` function.
+// TTY mode: wraps readline.question for interactive line editing.
+// Piped mode: buffers all stdin lines first, then serves them sequentially.
+async function makeAsker() {
+  if (process.stdin.isTTY) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    return (q) => new Promise(resolve => rl.question(q, answer => { resolve(answer); }));
+  }
+  // Non-TTY: read all lines from stdin before asking anything
+  const lines = await new Promise(resolve => {
+    const buf = [];
+    const rl = readline.createInterface({ input: process.stdin });
+    rl.on('line', l => buf.push(l));
+    rl.on('close', () => resolve(buf));
+  });
+  let idx = 0;
+  return (q) => {
+    const answer = lines[idx++] ?? '';
+    console.log(`${q}${answer}`);
+    return Promise.resolve(answer);
+  };
+}
 
 function parseArgs(argv) {
   const args = {
@@ -82,6 +236,7 @@ function parseArgs(argv) {
     if (a === '--route')        { args.route = next(); continue; }
     if (a === '--auth-only')    { args.authOnly = true; continue; }
     if (a === '--help' || a === '-h') { console.log(USAGE); process.exit(0); }
+    if (a === '--version' || a === '-v') { console.log(`darshana ${pkg.version}`); process.exit(0); }
     console.error(`Unknown argument: ${a}\n\n${USAGE}`);
     process.exit(1);
   }
@@ -136,95 +291,109 @@ function applyCliOverrides(config, args) {
   return config;
 }
 
-const args = parseArgs(process.argv.slice(2));
-
-if (!args.config && !args.url) {
-  console.error('Error: --url or --config is required\n\n' + USAGE);
-  process.exit(1);
+// Dispatch init before parseArgs so we don't need --url
+if (process.argv[2] === 'init') {
+  runInit();
+} else {
+  runMain();
 }
 
-async function main() {
-  let config;
-  if (args.config) {
-    config = loadConfig(args.config);
-    config = applyCliOverrides(config, args);
-  } else {
-    config = configFromArgs(args);
-  }
+function runMain() {
+  const args = parseArgs(process.argv.slice(2));
 
-  console.log(`[darshana] ${config.title} — ${config.url}`);
-
-  const storageStatePath = await ensureAuth(config);
-  config._storageStatePath = storageStatePath;
-
-  if (args.authOnly) {
-    console.log('[darshana] --auth-only done.');
-    process.exit(0);
-  }
-
-  let urls;
-  if (args.route) {
-    const fullUrl = args.route.startsWith('http') ? args.route : config.url + args.route;
-    urls = [fullUrl];
-    console.log(`[darshana] --route mode: ${fullUrl}`);
-  } else {
-    const crawlBrowser = await chromium.launch({ headless: true });
-    const crawlContextOpts = storageStatePath ? { storageState: storageStatePath } : {};
-    const crawlContext = await crawlBrowser.newContext(crawlContextOpts);
-    try {
-      console.log(`[darshana] Crawling from ${config.url}${config.start} ...`);
-      urls = await crawl(crawlContext, config);
-    } finally {
-      await crawlContext.close();
-      await crawlBrowser.close();
-    }
-    console.log(`[darshana] Crawl complete: ${urls.length} URLs found.`);
-  }
-
-  if (args.dryRun) {
-    console.log('\n[darshana] --dry-run: discovered URLs:');
-    for (const u of urls) console.log(`  ${u}`);
-    process.exit(0);
-  }
-
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    ...(config.capture.launchOptions ?? {}),
-  });
-
-  let captures;
-  try {
-    captures = await captureAll(browser, config, urls);
-  } finally {
-    await browser.close();
-  }
-
-  console.log(`\n[darshana] Captured ${captures.length} page(s).`);
-
-  if (captures.length === 0) {
-    console.error('[darshana] No pages captured. Exiting.');
+  if (!args.config && !args.url) {
+    console.error('Error: --url or --config is required\n\n' + USAGE);
     process.exit(1);
   }
 
-  const outputDir = config.outputDir;
-  fs.mkdirSync(outputDir, { recursive: true });
+  async function main() {
+    let config;
+    if (args.config) {
+      config = loadConfig(args.config);
+      config = applyCliOverrides(config, args);
+    } else {
+      config = configFromArgs(args);
+    }
 
-  const outputs = config.outputs ?? ['pdf', 'html'];
+    const storageStatePath = await ensureAuth(config);
+    config._storageStatePath = storageStatePath;
 
-  if (outputs.includes('pdf')) {
-    await assemblePdf(captures, config, outputDir);
+    printConfigSummary(config);
+
+    if (args.authOnly) {
+      console.log('[darshana] --auth-only done.');
+      process.exit(0);
+    }
+
+    let urls;
+    if (args.route) {
+      const fullUrl = args.route.startsWith('http') ? args.route : config.url + args.route;
+      urls = [fullUrl];
+      console.log(`[darshana] --route mode: ${fullUrl}`);
+    } else {
+      const crawlBrowser = await chromium.launch({ headless: true });
+      const crawlContextOpts = storageStatePath ? { storageState: storageStatePath } : {};
+      const crawlContext = await crawlBrowser.newContext(crawlContextOpts);
+      try {
+        console.log(`[darshana] Crawling from ${config.url}${config.start} ...`);
+        urls = await crawl(crawlContext, config);
+      } finally {
+        await crawlContext.close();
+        await crawlBrowser.close();
+      }
+      console.log(`[darshana] Crawl complete: ${urls.length} URLs found.`);
+    }
+
+    if (args.dryRun) {
+      console.log('\n[darshana] --dry-run: discovered URLs:');
+      for (const u of urls) console.log(`  ${u}`);
+      process.exit(0);
+    }
+
+    const browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      ...(config.capture.launchOptions ?? {}),
+    });
+
+    let captures;
+    try {
+      captures = await captureAll(browser, config, urls);
+    } finally {
+      await browser.close();
+    }
+
+    console.log(`\n[darshana] Captured ${captures.length} page(s).`);
+
+    if (captures.length === 0) {
+      console.error('[darshana] No pages captured. Exiting.');
+      process.exit(1);
+    }
+
+    const outputDir = config.outputDir;
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const outputs = config.outputs ?? ['pdf', 'html'];
+
+    if (outputs.includes('pdf')) {
+      await assemblePdf(captures, config, outputDir);
+    }
+
+    if (outputs.includes('html')) {
+      await assembleHtml(captures, config, outputDir);
+    }
+
+    if (outputs.includes('images')) {
+      await writeImages(captures, outputDir);
+    }
+
+    console.log('\n[darshana] Done.');
   }
 
-  if (outputs.includes('html')) {
-    await assembleHtml(captures, config, outputDir);
-  }
-
-  if (outputs.includes('images')) {
-    await writeImages(captures, outputDir);
-  }
-
-  console.log('\n[darshana] Done.');
+  main().catch(err => {
+    console.error('[darshana] Fatal:', err);
+    process.exit(1);
+  });
 }
 
 async function writeImages(captures, outputDir) {
@@ -257,8 +426,3 @@ function slugifyPathname(pathname) {
     .replace(/^-|-$/g, '')
     || 'root';
 }
-
-main().catch(err => {
-  console.error('[darshana] Fatal:', err);
-  process.exit(1);
-});
