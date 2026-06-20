@@ -63,17 +63,20 @@ export async function captureAll(browser, config, urls) {
           await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
           await page.addStyleTag({ content: NEXTJS_HIDE_STYLE }).catch(() => {});
 
-          await page.evaluate((t) => {
-            const html = document.documentElement;
-            html.setAttribute('data-theme', t);
-            if (t === 'dark') {
-              html.classList.add('dark');
-              html.classList.remove('light');
-            } else {
-              html.classList.add('light');
-              html.classList.remove('dark');
-            }
-          }, theme);
+          // 'system' = no injection; let the page's own prefers-color-scheme take effect
+          if (theme !== 'system') {
+            await page.evaluate((t) => {
+              const html = document.documentElement;
+              html.setAttribute('data-theme', t);
+              if (t === 'dark') {
+                html.classList.add('dark');
+                html.classList.remove('light');
+              } else {
+                html.classList.add('light');
+                html.classList.remove('dark');
+              }
+            }, theme);
+          }
 
           if (waitFor) {
             if (waitFor.startsWith('$')) {

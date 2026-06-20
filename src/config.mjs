@@ -19,10 +19,16 @@ export function loadConfig(configPath) {
   if (!raw.url) throw new Error('Config missing required field: url');
   if (!raw.start) throw new Error('Config missing required field: start');
 
+  return buildConfig(raw, configDir);
+}
+
+// Build a config object from a plain object (used by both loadConfig and CLI --url mode).
+// configDir is used to resolve relative paths; defaults to cwd when not loading from a file.
+export function buildConfig(raw, configDir = process.cwd()) {
   const config = {
     title: raw.title ?? 'Design Review',
     url: raw.url.replace(/\/$/, ''),
-    start: raw.start,
+    start: raw.start ?? '/',
     public: raw.public ?? false,
     authStorage: raw.authStorage ?? './auth.json',
     authScript: raw.authScript ?? null,
@@ -37,7 +43,7 @@ export function loadConfig(configPath) {
     },
 
     capture: {
-      themes: raw.capture?.themes ?? ['dark'],
+      themes: raw.capture?.themes ?? ['system'],
       viewports: raw.capture?.viewports ?? ['desktop'],
       fullPage: raw.capture?.fullPage ?? true,
       delay: raw.capture?.delay ?? 400,
@@ -50,11 +56,11 @@ export function loadConfig(configPath) {
     },
 
     pdf: {
-      output: raw.pdf?.output ?? './console-review.pdf',
+      output: raw.pdf?.output ?? './darshana-output/review.pdf',
       pageSize: raw.pdf?.pageSize ?? 'A4',
     },
 
-    outputs: raw.outputs ?? ['pdf'],
+    outputs: raw.outputs ?? ['pdf', 'html'],
     outputDir: raw.outputDir ? path.resolve(configDir, raw.outputDir) : null,
   };
 
